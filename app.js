@@ -354,7 +354,7 @@
   }
 
   function renderRows(rows) {
-    if (!Array.isArray(rows) || !rows.length) return false;
+    if (!Array.isArray(rows)) return false;
     if (activeDrag) cleanupDrag(activeDrag.bar);
     selectBar(null);
     setEditMode(false);
@@ -379,7 +379,7 @@
   }
 
   function hasEditorAccess() {
-    return editorRole === 'owner' || editorRole === 'editor';
+    return sharedReady;
   }
 
   function refreshPermissionUi() {
@@ -390,13 +390,11 @@
     saveButton.disabled = !canEdit || saveInProgress || !dirty;
     resetButton.disabled = !sharedReady || saveInProgress;
     if (!canEdit && editOn) setEditMode(false);
-    loginEditorButton.hidden = Boolean(currentSession);
-    logoutEditorButton.hidden = !currentSession;
-    manageEditorsButton.hidden = editorRole !== 'owner';
-    editorIdentity.hidden = !currentSession;
-    editorIdentity.textContent = currentSession
-      ? (currentSession.user.email || '로그인됨') + (hasEditorAccess() ? ' · 편집 가능' : ' · 보기 전용')
-      : '';
+    loginEditorButton.hidden = true;
+    logoutEditorButton.hidden = true;
+    manageEditorsButton.hidden = true;
+    editorIdentity.hidden = true;
+    editorIdentity.textContent = '';
   }
 
   function applySharedRecord(record, message) {
@@ -519,11 +517,6 @@
   async function persist(message) {
     if (!sharedReady || !sharedClient) {
       announce('공용 일정 연결이 끝난 뒤 다시 저장해 주세요.');
-      return false;
-    }
-    if (!hasEditorAccess()) {
-      openAuthModal();
-      announce('편집자 로그인 후 저장할 수 있습니다.');
       return false;
     }
     if (!dirty) {
@@ -739,18 +732,6 @@
     sharedClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY, {
       auth: { persistSession: true, detectSessionInUrl: true, autoRefreshToken: true }
     });
-    var initial = await sharedClient.auth.getSession();
-    await refreshSessionAccess(initial.data && initial.data.session);
-    var listener = sharedClient.auth.onAuthStateChange(function (event, session) {
-      window.setTimeout(async function () {
-        await refreshSessionAccess(session);
-        if (event === 'SIGNED_IN') {
-          closeAuthModal();
-          announce(hasEditorAccess() ? '편집자로 로그인했습니다.' : '로그인했지만 편집 권한은 없습니다.');
-        }
-      }, 0);
-    });
-    authSubscription = listener.data && listener.data.subscription;
     subscribeSharedPlan();
     await loadSharedPlan({ force: true });
   }
@@ -1164,9 +1145,8 @@
   }
 
   function setEditMode(on) {
-    if (on && !hasEditorAccess()) {
-      openAuthModal();
-      announce('편집자 로그인 후 수정할 수 있습니다.');
+    if (on && !sharedReady) {
+      announce('공용 일정 연결이 끝난 뒤 수정할 수 있습니다.');
       return;
     }
     var changed = editOn !== Boolean(on);
@@ -1451,7 +1431,7 @@
       },
       annotations: { readOnlyHint: false, untrustedContentHint: true },
       execute: function (input) {
-        if (!hasEditorAccess()) throw new Error('편집자 로그인이 필요합니다.');
+        if (!sharedReady) throw new Error('공용 일정 연결이 필요합니다.');
         if (!input || typeof input !== 'object') throw new Error('입력값이 필요합니다.');
         if (typeof input.task !== 'string' || !input.task.trim() || input.task.length > 160) {
           throw new Error('작업 항목명은 1자 이상 160자 이하로 입력해 주세요.');
